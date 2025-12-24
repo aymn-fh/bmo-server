@@ -1,7 +1,26 @@
+# Dependencies
+node_modules/
 
+# Environment variables
+.env
+.env.local
 
-#Ignore vscode AI rules
-.github\instructions\codacy.instructions.md
-node_modules
-node_modules
-node_modules
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Uploads (optional - remove this line if you want to include uploads in git)
+uploads/*
+!uploads/.gitkeep
+
+# GitHub AI rules
+.github/instructions/codacy.instructions.md

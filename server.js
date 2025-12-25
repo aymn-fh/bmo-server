@@ -74,7 +74,7 @@ app.use((err, req, res, next) => {
 });
 
 // Database connection and server startup
-mongoose.connect(process.env.MONGODB_URI, {
+mongoose.connect(process.env.MONGODB_URI || process.env.MONGO_URI, {
   serverSelectionTimeoutMS: 30000,
   socketTimeoutMS: 45000,
 })

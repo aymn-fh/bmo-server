@@ -16,9 +16,9 @@ const superadminRoutes = require('./routes/superadmin');
 const adminRoutes = require('./routes/admin');
 const debugRoutes = require('./routes/debug');
 const { verifyTransporter } = require('./services/emailService');
-
-// 🔑 1. استيراد دالة الـ Seeding المشروطة من ملف ./seed.js
 const seedDatabase = require('./seed');
+const http = require('http');
+const { Server } = require('socket.io');
 
 const app = express();
 
@@ -29,18 +29,13 @@ app.use(express.json());
 app.use(morgan('combined'));
 app.use('/uploads', express.static('uploads'));
 
-// 📱 Custom Middleware to Log Connected Devices
+// Log connected devices
 app.use((req, res, next) => {
   const ip = req.headers['x-forwarded-for'] || req.connection.remoteAddress;
   const userAgent = req.headers['user-agent'];
-  // Log only distinct device connections (simplified for noise reduction, or log all for now)
-  console.log(`\n📱 [Device Request]`);
-  console.log(`   └─ IP: ${ip}`);
-  console.log(`   └─ Device: ${userAgent}`);
-  console.log(`   └─ Endpoint: ${req.method} ${req.url}\n`);
+  console.log(`📱 [Device Request] IP: ${ip}, Device: ${userAgent}, Endpoint: ${req.method} ${req.url}`);
   next();
 });
-
 
 // Routes
 app.use('/api/auth', authRoutes);
@@ -53,6 +48,15 @@ app.use('/api/messages', messageRoutes);
 app.use('/api/superadmin', superadminRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/debug', debugRoutes);
+
+// ✅ راوت يعمل على المتصفح
+app.get('/', (req, res) => {
+  res.send(`
+    <h1>🚀 BMO Backend Server</h1>
+    <p>Server is running and ready!</p>
+    <p>Use <a href="/health">/health</a> to check API status.</p>
+  `);
+});
 
 // Health check
 app.get('/health', (req, res) => {
@@ -69,21 +73,14 @@ app.use((err, req, res, next) => {
   });
 });
 
-// ... imports
-const http = require('http');
-const { Server } = require('socket.io');
-
-// ... (keep existing code)
-
-// Database connection and email verification
+// Database connection and server startup
 mongoose.connect(process.env.MONGODB_URI, {
-  serverSelectionTimeoutMS: 30000, // Increase timeout to 30 seconds
-  socketTimeoutMS: 45000, // Socket timeout
+  serverSelectionTimeoutMS: 30000,
+  socketTimeoutMS: 45000,
 })
   .then(async () => {
     console.log('✅ متصل بقاعدة البيانات');
 
-    // Ensure connection is fully ready
     if (mongoose.connection.readyState !== 1) {
       console.log('⏳ في انتظار اكتمال الاتصال بقاعدة البيانات...');
       await new Promise(resolve => {
@@ -93,7 +90,6 @@ mongoose.connect(process.env.MONGODB_URI, {
 
     console.log('✅ قاعدة البيانات جاهزة تماماً');
 
-    // 🔑 2. Seeding logic
     if (process.env.NODE_ENV === 'development') {
       console.log('--- بدء ملء قاعدة البيانات في وضع التطوير ---');
       try {
@@ -105,29 +101,25 @@ mongoose.connect(process.env.MONGODB_URI, {
       }
     }
 
-    // Verify email transporter on startup
-    await verifyTransporter();
+    // Verify email transporter (قد يفشل في بعض السيرفرات)
+    try {
+      await verifyTransporter();
+    } catch (e) {
+      console.warn('⚠️ Email transporter verification failed:', e.message);
+    }
 
-    const PORT = process.env.PORT || 5000;
+    const PORT = process.env.PORT || 8080;
 
-    // Create HTTP server and Socket.io instance
     const server = http.createServer(app);
     const io = new Server(server, {
-      cors: {
-        origin: "*",
-        methods: ["GET", "POST"]
-      }
+      cors: { origin: "*", methods: ["GET", "POST"] }
     });
 
-    // Make io accessible to routes
     app.set('io', io);
 
     io.on('connection', (socket) => {
       const clientIp = socket.handshake.headers['x-forwarded-for'] || socket.handshake.address;
-      console.log(`\n🔌 [New Socket Connection]`);
-      console.log(`   └─ IP: ${clientIp}`);
-      console.log(`   └─ Socket ID: ${socket.id}`);
-
+      console.log(`🔌 [New Socket Connection] IP: ${clientIp}, Socket ID: ${socket.id}`);
       socket.on('disconnect', () => {
         console.log(`❌ [Socket Disconnected] ID: ${socket.id}`);
       });
@@ -137,6 +129,7 @@ mongoose.connect(process.env.MONGODB_URI, {
       console.log(`🚀 Server running on port ${PORT}`);
       console.log(`📡 Accepting connections from all network interfaces`);
     });
+
   })
   .catch(err => {
     console.error('❌ MongoDB connection error:', err);

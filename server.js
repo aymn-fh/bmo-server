@@ -48,6 +48,7 @@ app.use('/api/messages', messageRoutes);
 app.use('/api/superadmin', superadminRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/debug', debugRoutes);
+app.use('/api/words', require('./routes/words'));
 
 // ✅ راوت يعمل على المتصفح
 app.get('/', (req, res) => {

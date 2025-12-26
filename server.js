@@ -138,3 +138,21 @@ mongoose.connect(process.env.MONGODB_URI || process.env.MONGO_URI, {
   });
 
 module.exports = app;
+import nodemailer from "nodemailer";
+
+const transporter = nodemailer.createTransport({
+  host: "smtp.gmail.com",
+  port: 465,
+  secure: true,
+  auth: {
+    user: "bmomshrw@gmail.com",
+    pass: process.env.SMTP_PASS,
+  },
+});
+
+await transporter.sendMail({
+  from: `"BMO Support" <bmomshrw@gmail.com>`,
+  to: "test@gmail.com",
+  subject: "اختبار SMTP",
+  text: "تم الاتصال بـ Gmail SMTP بنجاح ✅",
+});

@@ -40,4 +40,21 @@ router.get('/debug/parents', async (req, res) => {
     }
 });
 
+// Debug route - list uploaded files
+const fs = require('fs');
+const path = require('path');
+
+router.get('/uploads', (req, res) => {
+    const uploadDir = path.join(__dirname, '../uploads');
+    try {
+        if (!fs.existsSync(uploadDir)) {
+            return res.json({ error: 'Uploads directory does not exist', files: [] });
+        }
+        const files = fs.readdirSync(uploadDir);
+        res.json({ count: files.length, files });
+    } catch (e) {
+        res.json({ error: e.message });
+    }
+});
+
 module.exports = router;

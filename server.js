@@ -21,13 +21,24 @@ const http = require('http');
 const { Server } = require('socket.io');
 
 const app = express();
+const fs = require('fs');
+const path = require('path');
+
+// Ensure uploads directory exists
+const uploadDir = path.join(__dirname, 'uploads');
+if (!fs.existsSync(uploadDir)) {
+  fs.mkdirSync(uploadDir, { recursive: true });
+  console.log('📂 Uploads directory created at:', uploadDir);
+}
 
 // Middleware
-app.use(helmet());
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: "cross-origin" } // Allow images to be loaded by other domains/apps
+}));
 app.use(cors());
 app.use(express.json());
 app.use(morgan('combined'));
-app.use('/uploads', express.static('uploads'));
+app.use('/uploads', express.static(uploadDir));
 
 // Log connected devices
 app.use((req, res, next) => {

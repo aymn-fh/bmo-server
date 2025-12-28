@@ -18,10 +18,10 @@ router.get('/search-specialists', protect, authorize('parent'), async (req, res)
             role: 'specialist'
         };
 
-        // Exclude already linked specialist
-        if (parent.linkedSpecialist) {
-            searchQuery._id = { $ne: parent.linkedSpecialist };
-        }
+        // Exclude already linked specialist - REMOVED to allow parents to see all
+        // if (parent.linkedSpecialist) {
+        //     searchQuery._id = { $ne: parent.linkedSpecialist };
+        // }
 
         // If query is provided, search by name or specialization
         if (query && query.trim()) {
@@ -39,6 +39,46 @@ router.get('/search-specialists', protect, authorize('parent'), async (req, res)
             success: true,
             count: specialists.length,
             specialists
+        });
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+});
+
+// @route   GET /api/parents/search-centers
+// @desc    Search for centers by name or address
+// @access  Private (Parent)
+router.get('/search-centers', protect, authorize('parent'), async (req, res) => {
+    try {
+        const { query } = req.query;
+        const Center = require('../models/Center'); // Ensure Center model is imported
+
+        // Build search query
+        let searchQuery = {
+            isActive: true
+        };
+
+        // If query is provided, search by name or address
+        if (query && query.trim()) {
+            searchQuery.$or = [
+                { name: { $regex: query, $options: 'i' } },
+                { address: { $regex: query, $options: 'i' } },
+                { description: { $regex: query, $options: 'i' } }
+            ];
+        }
+
+        const centers = await Center.find(searchQuery)
+            .select('name address phone email description specialists')
+            .populate('specialists', 'name specialization profilePhoto')
+            .limit(30);
+
+        res.json({
+            success: true,
+            count: centers.length,
+            centers
         });
     } catch (error) {
         res.status(500).json({
@@ -283,6 +323,43 @@ router.get('/notifications/unread/count', protect, authorize('parent'), async (r
         res.json({
             success: true,
             count
+        });
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+});
+
+// @route   DELETE /api/parents/unlink-specialist
+// @desc    Unlink the current specialist
+// @access  Private (Parent)
+router.delete('/unlink-specialist', protect, authorize('parent'), async (req, res) => {
+    try {
+        const parent = await User.findById(req.user.id);
+
+        if (!parent.linkedSpecialist) {
+            return res.status(400).json({
+                success: false,
+                message: 'You are not linked to any specialist'
+            });
+        }
+
+        const specialistId = parent.linkedSpecialist;
+
+        // 1. Remove from parent's linkedSpecialist
+        parent.linkedSpecialist = null;
+        await parent.save();
+
+        // 2. Remove from specialist's linkedParents
+        await User.findByIdAndUpdate(specialistId, {
+            $pull: { linkedParents: req.user.id }
+        });
+
+        res.json({
+            success: true,
+            message: 'Unlinked from specialist successfully'
         });
     } catch (error) {
         res.status(500).json({

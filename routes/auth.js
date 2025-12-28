@@ -537,7 +537,14 @@ router.post('/refresh-token', protect, async (req, res) => {
 // @access  Private (Parent only)
 router.get('/my-specialist', protect, async (req, res) => {
     try {
-        const user = await User.findById(req.user.id).populate('linkedSpecialist', 'name email phone specialization photo');
+        const user = await User.findById(req.user.id).populate({
+            path: 'linkedSpecialist',
+            select: 'name email phone specialization profilePhoto center',
+            populate: {
+                path: 'center',
+                select: 'name_ar name_en'
+            }
+        });
 
         if (!user) {
             return res.status(404).json({

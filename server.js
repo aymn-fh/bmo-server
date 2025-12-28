@@ -38,7 +38,21 @@ app.use(helmet({
 app.use(cors());
 app.use(express.json());
 app.use(morgan('combined'));
-app.use('/uploads', express.static(uploadDir));
+
+// Manual route for serving uploads to debug 404s
+app.get('/uploads/:filename', (req, res) => {
+  const filepath = path.join(uploadDir, req.params.filename);
+  console.log(`📂 [Upload Request] Serving: ${req.params.filename}`);
+
+  if (fs.existsSync(filepath)) {
+    res.sendFile(filepath);
+  } else {
+    console.error(`❌ [Upload Error] File not found: ${filepath}`);
+    res.status(404).send('File not found');
+  }
+});
+// Fallback for directory listing (optional/debug) or other static needs if strictly needed, but route above covers files.
+// app.use('/uploads', express.static(uploadDir));
 
 // Log connected devices
 app.use((req, res, next) => {

@@ -49,6 +49,7 @@ app.use('/api/superadmin', superadminRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/debug', debugRoutes);
 app.use('/api/words', require('./routes/words'));
+app.use('/api/upload', require('./routes/upload'));
 
 // ✅ راوت يعمل على المتصفح
 app.get('/', (req, res) => {

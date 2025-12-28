@@ -12,7 +12,7 @@ const { protect, authorize } = require('../middleware/auth');
 router.get('/pending-requests', protect, authorize('specialist'), async (req, res) => {
   try {
     const children = await Child.find({ specialistRequestStatus: 'pending' })
-      .populate('parent', 'name email phone');
+      .populate('parent', 'name email phone profilePhoto');
 
     res.json({
       success: true,
@@ -170,7 +170,7 @@ router.get('/search-parent', protect, authorize('specialist'), async (req, res) 
     }
 
     const parents = await User.find(searchQuery)
-      .select('_id name email phone')
+      .select('_id name email phone profilePhoto')
       .limit(20); // Limit results
 
     res.json({
@@ -277,7 +277,7 @@ router.get('/parents', protect, authorize('specialist'), async (req, res) => {
     const specialist = await User.findById(req.user.id)
       .populate({
         path: 'linkedParents',
-        select: '_id name email phone'
+        select: '_id name email phone profilePhoto'
       });
 
     res.json({
@@ -447,7 +447,7 @@ router.post('/create-child', protect, authorize('specialist'), async (req, res) 
 router.get('/my-children', protect, authorize('specialist'), async (req, res) => {
   try {
     const children = await Child.find({ assignedSpecialist: req.user.id })
-      .populate('parent', 'name email phone');
+      .populate('parent', 'name email phone profilePhoto');
 
     res.json({
       success: true,

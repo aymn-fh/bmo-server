@@ -32,7 +32,7 @@ router.get('/search-specialists', protect, authorize('parent'), async (req, res)
         }
 
         const specialists = await User.find(searchQuery)
-            .select('_id name email phone specialization')
+            .select('_id name email phone specialization profilePhoto bio')
             .limit(30);
 
         res.json({

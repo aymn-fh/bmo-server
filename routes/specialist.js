@@ -128,6 +128,26 @@ router.post('/set-duration/:childId', protect, authorize('specialist'), async (r
 
     await child.save();
 
+    // 🔔 Create Notification for Parent (if child has parent)
+    try {
+      if (child.parent) {
+        const specialist = await User.findById(req.user.id);
+        const Notification = require('../models/Notification');
+        await Notification.create({
+          recipient: child.parent,
+          type: 'info',
+          title: 'تحديث الخطة العلاجية',
+          message: `قام الأخصائي ${specialist.name} بتحديث إعدادات الجلسة لطفلك ${child.name}.`,
+          data: {
+            childId: child._id,
+            specialistId: specialist._id
+          }
+        });
+      }
+    } catch (notifError) {
+      console.error('❌ Failed to create notification:', notifError.message);
+    }
+
     res.json({
       success: true,
       message: 'Settings updated successfully',
@@ -547,6 +567,22 @@ router.post('/accept-link-request/:requestId', protect, authorize('specialist'),
     await User.findByIdAndUpdate(request.from, {
       linkedSpecialist: req.user.id
     });
+
+    // 🔔 Create Notification for Parent
+    try {
+      const specialist = await User.findById(req.user.id);
+      await Notification.create({
+        recipient: request.from,
+        type: 'success',
+        title: 'تم قبول طلب الربط',
+        message: `وافق الأخصائي ${specialist.name} على طلب الربط الخاص بك.`,
+        data: {
+          specialistId: specialist._id
+        }
+      });
+    } catch (notifError) {
+      console.error('❌ Failed to create notification:', notifError.message);
+    }
 
     // Cancel any other pending requests from this parent
     await LinkRequest.updateMany(

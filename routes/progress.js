@@ -105,6 +105,28 @@ router.post('/sync', protect, async (req, res) => {
 
     await progress.save();
 
+    await progress.save();
+
+    // 🔔 Create Notification for Parent
+    try {
+      const child = await Child.findById(childId).select('name parent');
+      if (child && child.parent) {
+        const Notification = require('../models/Notification');
+        await Notification.create({
+          recipient: child.parent,
+          type: 'success', // or 'info'
+          title: 'جلسة جديدة مكتملة', // New Session Completed
+          message: `أكمل طفلك ${child.name} جلسة تدريبية جديدة بنجاح!`, // Your child X completed a session
+          data: {
+            childId: child._id,
+            progressId: progress._id
+          }
+        });
+      }
+    } catch (notifError) {
+      console.error('❌ Failed to create notification:', notifError.message);
+    }
+
     // 🚀 Real-time Update: Emit event to all connected clients (Portal & App)
     const io = req.app.get('io');
     if (io) {

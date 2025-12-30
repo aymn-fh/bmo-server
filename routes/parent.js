@@ -89,11 +89,12 @@ router.get('/search-centers', protect, authorize('parent'), async (req, res) => 
 });
 
 // @route   POST /api/parents/send-link-request
-// @desc    Send a link request to a specialist
+// @desc    Send a link request to a specialist for a child
 // @access  Private (Parent)
 router.post('/send-link-request', protect, authorize('parent'), async (req, res) => {
     try {
-        const { specialistId, message } = req.body;
+        const { specialistId, childId, message } = req.body;
+        const Child = require('../models/Child');
 
         if (!specialistId) {
             return res.status(400).json({
@@ -102,12 +103,10 @@ router.post('/send-link-request', protect, authorize('parent'), async (req, res)
             });
         }
 
-        // Check if parent is already linked to a specialist
-        const parent = await User.findById(req.user.id);
-        if (parent.linkedSpecialist) {
+        if (!childId) {
             return res.status(400).json({
                 success: false,
-                message: 'You are already linked to a specialist'
+                message: 'Child ID is required'
             });
         }
 
@@ -120,17 +119,37 @@ router.post('/send-link-request', protect, authorize('parent'), async (req, res)
             });
         }
 
-        // Check if there's already a pending request
+        // Check if child exists and belongs to parent
+        const child = await Child.findById(childId);
+        if (!child || child.parent.toString() !== req.user.id) {
+            return res.status(404).json({
+                success: false,
+                message: 'Child not found'
+            });
+        }
+
+        // Check if child is already assigned to a specialist (and accepted)
+        // If status is pending, maybe allow cancelling previous request automatically?
+        // For now, enforce one active link/request.
+        if (child.assignedSpecialist) {
+            return res.status(400).json({
+                success: false,
+                message: 'This child is already assigned to a specialist'
+            });
+        }
+
+        // Check if there's already a pending request for this child
         const existingRequest = await LinkRequest.findOne({
             from: req.user.id,
             to: specialistId,
+            child: childId,
             status: 'pending'
         });
 
         if (existingRequest) {
             return res.status(400).json({
                 success: false,
-                message: 'You already have a pending request to this specialist'
+                message: 'You already have a pending request to this specialist for this child'
             });
         }
 
@@ -138,8 +157,13 @@ router.post('/send-link-request', protect, authorize('parent'), async (req, res)
         const linkRequest = await LinkRequest.create({
             from: req.user.id,
             to: specialistId,
+            child: childId,
             message: message || ''
         });
+
+        // Update child status
+        child.specialistRequestStatus = 'pending';
+        await child.save();
 
         // Populate the response
         await linkRequest.populate('to', 'name email specialization');

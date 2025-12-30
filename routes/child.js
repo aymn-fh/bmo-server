@@ -64,11 +64,15 @@ router.get('/', protect, async (req, res) => {
 
     if (req.user.role === 'parent') {
       console.log('👶 [CHILD ROUTE] Fetching children for parent...');
-      children = await Child.find({ parent: req.user.id }).populate('assignedSpecialist', 'name email specialization');
+      children = await Child.find({ parent: req.user.id }).populate('assignedSpecialist', 'name email specialization phone profilePhoto')
+        .populate({
+          path: 'assignedSpecialist',
+          populate: { path: 'center', select: 'name nameEn' }
+        });
       console.log('✅ [CHILD ROUTE] Found', children.length, 'children for parent');
     } else if (req.user.role === 'specialist') {
       console.log('👶 [CHILD ROUTE] Fetching children for specialist...');
-      children = await Child.find({ assignedSpecialist: req.user.id }).populate('parent', 'name email phone');
+      children = await Child.find({ assignedSpecialist: req.user.id }).populate('parent', 'name email phone profilePhoto');
       console.log('✅ [CHILD ROUTE] Found', children.length, 'children for specialist');
     } else {
       console.log('❌ [CHILD ROUTE] Unknown user role:', req.user.role);
@@ -98,8 +102,15 @@ router.get('/', protect, async (req, res) => {
 router.get('/:id', protect, async (req, res) => {
   try {
     const child = await Child.findById(req.params.id)
-      .populate('parent', 'name email phone')
-      .populate('assignedSpecialist', 'name email specialization');
+      .populate('parent', 'name email phone photo')
+      .populate({
+        path: 'assignedSpecialist',
+        select: 'name email phone profilePhoto specialization center',
+        populate: {
+          path: 'center',
+          select: 'name nameEn'
+        }
+      });
 
     if (!child) {
       return res.status(404).json({

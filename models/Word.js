@@ -6,10 +6,16 @@ const wordSchema = new mongoose.Schema({
         required: true,
         trim: true
     },
+    contentType: {
+        type: String,
+        enum: ['word', 'letter'],
+        required: true,
+        default: 'word'
+    },
     difficulty: {
         type: String,
-        enum: ['beginner', 'intermediate', 'advanced'],
-        default: 'beginner'
+        enum: ['easy', 'medium', 'hard'],
+        default: 'easy'
     },
     image: {
         type: String,
@@ -28,8 +34,10 @@ const wordSchema = new mongoose.Schema({
     timestamps: true
 });
 
-// Index for faster queries
-wordSchema.index({ child: 1, createdAt: -1 });
+// Indexes for faster queries
+wordSchema.index({ child: 1, contentType: 1, createdAt: -1 });
 wordSchema.index({ createdBy: 1 });
+wordSchema.index({ contentType: 1 });
+wordSchema.index({ child: 1, createdAt: -1 });
 
 module.exports = mongoose.model('Word', wordSchema);

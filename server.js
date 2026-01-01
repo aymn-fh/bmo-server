@@ -75,6 +75,8 @@ app.use('/api/superadmin', superadminRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/debug', debugRoutes);
 app.use('/api/words', require('./routes/words'));
+app.use('/api/content', require('./routes/content'));
+app.use('/api/specialist', require('./routes/specialistPortal'));
 app.use('/api/upload', require('./routes/upload'));
 
 // ✅ راوت يعمل على المتصفح

@@ -1,6 +1,6 @@
 const mongoose = require('mongoose');
 require('dotenv').config({ path: 'C:/Users/VICTUS/Desktop/BEST/backend/.env' });
-const User = require('C:/Users/VICTUS/Desktop/BEST/backend/models/User');
+const User = require('C:/Users/anas-/OneDrive/Desktop/BEST/backend/models/User');
 
 mongoose.connect(process.env.MONGODB_URI)
     .then(async () => {

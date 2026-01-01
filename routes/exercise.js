@@ -179,8 +179,8 @@ router.delete('/:id', protect, authorize('specialist'), async (req, res) => {
 
 // @route   GET /api/exercises/letters/default
 // @desc    Get default Arabic letters with articulation points
-// @access  Private
-router.get('/letters/default', protect, async (req, res) => {
+// @access  Public
+router.get('/letters/default', async (req, res) => {
   try {
     const defaultLetters = [
       { letter: 'ب', articulationPoint: 'الشفتان', vowels: ['بَ', 'بِ', 'بُ', 'بْ'] },
@@ -226,8 +226,8 @@ router.get('/letters/default', protect, async (req, res) => {
 
 // @route   GET /api/exercises/words/default
 // @desc    Get default Libyan dialect words
-// @access  Private
-router.get('/words/default', protect, async (req, res) => {
+// @access  Public
+router.get('/words/default', async (req, res) => {
   try {
     const defaultWords = [
       // Emotions

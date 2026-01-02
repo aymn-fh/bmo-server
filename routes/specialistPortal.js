@@ -4,6 +4,44 @@ const Word = require('../models/Word');
 const Child = require('../models/Child');
 const User = require('../models/User');
 const { protect } = require('../middleware/auth');
+const LinkRequest = require('../models/LinkRequest');
+
+// @route   GET /api/specialist/dashboard
+// @desc    Get specialist dashboard stats
+// @access  Private (Specialist)
+router.get('/dashboard', protect, async (req, res) => {
+    try {
+        const specialistId = req.user.id;
+
+        const [childrenCount, linkRequestsCount, linkedParentsCount] = await Promise.all([
+            Child.countDocuments({ assignedSpecialist: specialistId }),
+            LinkRequest.countDocuments({ to: specialistId, status: 'pending' }),
+            User.findById(specialistId).then(user => user.linkedParents ? user.linkedParents.length : 0)
+        ]);
+
+        // Get recent 5 children
+        const recentChildren = await Child.find({ assignedSpecialist: specialistId })
+            .sort('-createdAt')
+            .limit(5)
+            .select('name age gender profilePhoto');
+
+        res.json({
+            success: true,
+            stats: {
+                children: childrenCount,
+                pendingRequests: linkRequestsCount,
+                parents: linkedParentsCount
+            },
+            recentChildren
+        });
+    } catch (error) {
+        console.error('Dashboard Stats Error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error fetching dashboard stats'
+        });
+    }
+});
 
 // @route   GET /api/specialist/words
 // @desc    Get specialist words management page data
@@ -35,7 +73,7 @@ router.get('/words', protect, async (req, res) => {
             // Get content based on type
             let words = [];
             let letters = [];
-            
+
             if (!contentType || contentType === 'word') {
                 words = await Word.find({ ...query, contentType: 'word' }).sort('-createdAt');
             }

@@ -3,6 +3,7 @@ const router = express.Router();
 const User = require('../models/User');
 const LinkRequest = require('../models/LinkRequest');
 const Notification = require('../models/Notification');
+const Child = require('../models/Child');
 const { protect, authorize } = require('../middleware/auth');
 
 // @route   GET /api/parents/search-specialists
@@ -372,6 +373,15 @@ router.delete('/unlink-specialist', protect, authorize('parent'), async (req, re
 
         const specialistId = parent.linkedSpecialist;
 
+        // Gather children currently assigned to this specialist to cleanly detach
+        const children = await Child.find({
+            parent: req.user.id,
+            assignedSpecialist: specialistId
+        }).select('_id name');
+
+        const childIds = children.map(c => c._id);
+        const childNames = children.map(c => c.name).join(', ');
+
         // 1. Remove from parent's linkedSpecialist
         parent.linkedSpecialist = null;
         await parent.save();
@@ -381,9 +391,40 @@ router.delete('/unlink-specialist', protect, authorize('parent'), async (req, re
             $pull: { linkedParents: req.user.id }
         });
 
+        // 3. Detach children from the specialist (web + app consistency)
+        if (childIds.length) {
+            await Child.updateMany(
+                { _id: { $in: childIds } },
+                { $set: { assignedSpecialist: null, specialistRequestStatus: 'none' } }
+            );
+
+            await User.findByIdAndUpdate(specialistId, {
+                $pullAll: { assignedChildren: childIds }
+            });
+        }
+
+        // 4. Notify the specialist that the parent cancelled the link
+        try {
+            await Notification.create({
+                recipient: specialistId,
+                type: 'warning',
+                title: 'تم إلغاء الارتباط',
+                message: childIds.length
+                    ? `قام ولي الأمر ${parent.name} بإلغاء التعامل. تم فصل الأطفال: ${childNames || 'بدون أسماء'}.`
+                    : `قام ولي الأمر ${parent.name} بإلغاء التعامل.`,
+                data: {
+                    parentId: parent._id,
+                    childIds
+                }
+            });
+        } catch (notifErr) {
+            console.error('Failed to create unlink notification:', notifErr.message);
+        }
+
         res.json({
             success: true,
-            message: 'Unlinked from specialist successfully'
+            message: 'Unlinked from specialist successfully',
+            unlinkedChildren: childIds.length
         });
     } catch (error) {
         res.status(500).json({

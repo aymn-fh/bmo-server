@@ -206,10 +206,10 @@ router.put('/profile', protect, upload.single('photo'), async (req, res) => {
         if (name) user.name = name;
         if (phone !== undefined) user.phone = phone;
 
-        // Handle File Upload
+        // Handle File Upload (save to profilePhoto)
         if (req.file) {
             // Store relative path (normalized to forward slashes)
-            user.photo = req.file.path.replace(/\\/g, "/");
+            user.profilePhoto = req.file.path.replace(/\\/g, "/");
         }
 
         await user.save();
@@ -223,7 +223,7 @@ router.put('/profile', protect, upload.single('photo'), async (req, res) => {
                 role: user.role,
                 phone: user.phone,
                 emailVerified: user.emailVerified,
-                photo: user.photo
+                profilePhoto: user.profilePhoto
             }
         });
     } catch (error) {

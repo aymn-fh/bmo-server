@@ -248,7 +248,7 @@ router.get('/parents', protect, authorize('admin'), async (req, res) => {
         const admin = await User.findById(req.user.id)
             .populate({
                 path: 'linkedParents',
-                select: '_id name email phone'
+                select: '_id name email phone profilePhoto'
             });
 
         res.json({

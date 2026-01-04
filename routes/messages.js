@@ -37,6 +37,14 @@ router.post('/', protect, async (req, res) => {
 
         // Populate sender info
         await message.populate('sender', 'name email role');
+        await message.populate('receiver', 'name email role');
+
+        // Emit realtime event
+        const io = req.app.get('io');
+        if (io) {
+            io.to(req.user.id.toString()).emit('new_message', message);
+            io.to(receiverId.toString()).emit('new_message', message);
+        }
 
         res.status(201).json({
             success: true,
@@ -44,6 +52,29 @@ router.post('/', protect, async (req, res) => {
         });
     } catch (error) {
         console.error('Error sending message:', error);
+        res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+});
+
+// @route   GET /api/messages/unread/count
+// @desc    Get count of all unread messages
+// @access  Private
+router.get('/unread/count', protect, async (req, res) => {
+    try {
+        const count = await Message.countDocuments({
+            receiver: req.user.id,
+            isRead: false
+        });
+
+        res.json({
+            success: true,
+            unreadCount: count
+        });
+    } catch (error) {
+        console.error('Error fetching unread count:', error);
         res.status(500).json({
             success: false,
             message: error.message
@@ -229,29 +260,6 @@ router.put('/:messageId/read', protect, async (req, res) => {
     }
 });
 
-// @route   GET /api/messages/unread/count
-// @desc    Get count of all unread messages
-// @access  Private
-router.get('/unread/count', protect, async (req, res) => {
-    try {
-        const count = await Message.countDocuments({
-            receiver: req.user.id,
-            isRead: false
-        });
-
-        res.json({
-            success: true,
-            unreadCount: count
-        });
-    } catch (error) {
-        console.error('Error fetching unread count:', error);
-        res.status(500).json({
-            success: false,
-            message: error.message
-        });
-    }
-});
-
 // @route   DELETE /api/messages/:messageId
 // @desc    Delete a message
 // @access  Private
@@ -274,6 +282,12 @@ router.delete('/:messageId', protect, async (req, res) => {
                 success: false,
                 message: 'Not authorized'
             });
+        }
+
+        const io = req.app.get('io');
+        if (io) {
+            io.to(message.sender.toString()).emit('message_deleted', { messageId });
+            io.to(message.receiver.toString()).emit('message_deleted', { messageId });
         }
 
         await message.deleteOne();
@@ -326,6 +340,15 @@ router.put('/:messageId', protect, async (req, res) => {
         message.content = content.trim();
         message.isEdited = true; // Add this field to schema if needed, or just rely on updatedAt vs createdAt
         await message.save();
+
+        await message.populate('sender', 'name email role');
+        await message.populate('receiver', 'name email role');
+
+        const io = req.app.get('io');
+        if (io) {
+            io.to(message.sender._id.toString()).emit('message_edited', message);
+            io.to(message.receiver._id.toString()).emit('message_edited', message);
+        }
 
         res.json({
             success: true,

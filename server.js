@@ -149,7 +149,23 @@ mongoose.connect(process.env.MONGODB_URI || process.env.MONGO_URI, {
 
     io.on('connection', (socket) => {
       const clientIp = socket.handshake.headers['x-forwarded-for'] || socket.handshake.address;
-      console.log(`🔌 [New Socket Connection] IP: ${clientIp}, Socket ID: ${socket.id}`);
+      const userId = socket.handshake.auth?.userId;
+
+      console.log(`🔌 [New Socket Connection] IP: ${clientIp}, Socket ID: ${socket.id}, UserID: ${userId || 'n/a'}`);
+
+      if (userId) {
+        socket.join(userId.toString());
+      }
+
+      // Typing indicator relay: sender -> receiver
+      socket.on('typing', (data) => {
+        if (!userId) return;
+        const receiverId = data?.receiverId;
+        const isTyping = !!data?.isTyping;
+        if (!receiverId) return;
+        io.to(receiverId.toString()).emit('user_typing', { userId: userId.toString(), isTyping });
+      });
+
       socket.on('disconnect', () => {
         console.log(`❌ [Socket Disconnected] ID: ${socket.id}`);
       });

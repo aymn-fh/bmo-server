@@ -2,8 +2,10 @@ const express = require('express');
 const router = express.Router();
 const Message = require('../models/Message');
 const User = require('../models/User');
+const DeviceToken = require('../models/DeviceToken');
 const mongoose = require('mongoose');
 const { protect } = require('../middleware/auth');
+const { sendToTokens } = require('../services/pushService');
 
 // @route   POST /api/messages
 // @desc    Send a new message
@@ -45,6 +47,35 @@ router.post('/', protect, async (req, res) => {
             io.to(req.user.id.toString()).emit('new_message', message);
             io.to(receiverId.toString()).emit('new_message', message);
         }
+
+        // Send push notification to receiver devices (best-effort, non-blocking)
+        setImmediate(async () => {
+            try {
+                const tokensDocs = await DeviceToken.find({ user: receiverId }).select('token');
+                const tokens = tokensDocs.map(d => d.token).filter(Boolean);
+
+                if (tokens.length > 0) {
+                    const senderName = message.sender?.name || 'رسالة جديدة';
+                    const body = message.content || 'لديك رسالة جديدة';
+
+                    await sendToTokens({
+                        tokens,
+                        notification: {
+                            title: senderName,
+                            body,
+                        },
+                        data: {
+                            type: 'chat',
+                            senderId: message.sender?._id?.toString() || req.user.id.toString(),
+                            senderName: senderName.toString(),
+                            content: (message.content || '').toString(),
+                        },
+                    });
+                }
+            } catch (pushError) {
+                console.warn('⚠️ Push send failed:', pushError?.message || pushError);
+            }
+        });
 
         res.status(201).json({
             success: true,

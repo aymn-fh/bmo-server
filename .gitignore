@@ -10,6 +10,9 @@ logs/
 *.log
 npm-debug.log*
 
+# Build/package artifacts
+*.tgz
+
 # OS
 .DS_Store
 Thumbs.db

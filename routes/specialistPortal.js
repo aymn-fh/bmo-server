@@ -3,6 +3,7 @@ const router = express.Router();
 const Word = require('../models/Word');
 const Child = require('../models/Child');
 const User = require('../models/User');
+const Progress = require('../models/Progress');
 const { protect } = require('../middleware/auth');
 const LinkRequest = require('../models/LinkRequest');
 
@@ -13,24 +14,38 @@ router.get('/dashboard', protect, async (req, res) => {
     try {
         const specialistId = req.user.id;
 
-        const [childrenCount, linkRequestsCount, linkedParentsCount] = await Promise.all([
+        const [childrenCount, linkRequestsCount, linkedParentsCount, assignedChildrenIds] = await Promise.all([
             Child.countDocuments({ assignedSpecialist: specialistId }),
             LinkRequest.countDocuments({ to: specialistId, status: 'pending' }),
-            User.findById(specialistId).then(user => user.linkedParents ? user.linkedParents.length : 0)
+            User.findById(specialistId).then(user => user.linkedParents ? user.linkedParents.length : 0),
+            Child.find({ assignedSpecialist: specialistId }).select('_id').lean()
         ]);
+
+        const childIds = (assignedChildrenIds || []).map(c => c._id);
+        let sessionsCount = 0;
+        if (childIds.length > 0) {
+            const sessionsAgg = await Progress.aggregate([
+                { $match: { child: { $in: childIds } } },
+                { $project: { sessionCount: { $size: { $ifNull: ['$sessions', []] } } } },
+                { $group: { _id: null, total: { $sum: '$sessionCount' } } }
+            ]);
+            sessionsCount = sessionsAgg && sessionsAgg.length > 0 ? sessionsAgg[0].total : 0;
+        }
 
         // Get recent 5 children
         const recentChildren = await Child.find({ assignedSpecialist: specialistId })
             .sort('-createdAt')
             .limit(5)
-            .select('name age gender profilePhoto');
+            .populate('parent', 'name email phone profilePhoto staffId')
+            .select('name age gender parent');
 
         res.json({
             success: true,
             stats: {
                 children: childrenCount,
                 pendingRequests: linkRequestsCount,
-                parents: linkedParentsCount
+                parents: linkedParentsCount,
+                sessions: sessionsCount
             },
             recentChildren
         });

@@ -36,8 +36,7 @@ router.get('/dashboard', protect, async (req, res) => {
         const recentChildren = await Child.find({ assignedSpecialist: specialistId })
             .sort('-createdAt')
             .limit(5)
-            .populate('parent', 'name email phone profilePhoto staffId')
-            .select('name age gender parent');
+            .select('name age gender profilePhoto');
 
         res.json({
             success: true,

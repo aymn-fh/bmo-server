@@ -33,10 +33,21 @@ router.get('/dashboard', protect, async (req, res) => {
         }
 
         // Get recent 5 children
-        const recentChildren = await Child.find({ assignedSpecialist: specialistId })
-            .sort('-createdAt')
-            .limit(5)
-            .populate('parent', 'name email phone profilePhoto staffId');
+        let recentChildren = [];
+        try {
+            recentChildren = await Child.find({ assignedSpecialist: specialistId })
+                .sort('-createdAt')
+                .limit(5)
+                .populate({
+                    path: 'parent',
+                    select: 'name email phone profilePhoto staffId',
+                    model: 'User'
+                });
+        } catch (err) {
+            console.error('Error fetching recent children:', err);
+            // Fallback to empty list or without populate if critical
+            recentChildren = [];
+        }
 
         res.json({
             success: true,

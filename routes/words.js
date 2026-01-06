@@ -1,10 +1,31 @@
 const express = require('express');
 const router = express.Router();
-const Word = require('../models/Word');
+const Exercise = require('../models/Exercise');
 const { protect } = require('../middleware/auth');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
+
+async function getOrCreateContentDoc(childId) {
+    return Exercise.findOneAndUpdate(
+        { child: childId, kind: 'content' },
+        { $setOnInsert: { child: childId, kind: 'content', active: true } },
+        { new: true, upsert: true, runValidators: true }
+    );
+}
+
+function asLegacyWordItem(item, contentType, childId) {
+    return {
+        _id: item._id,
+        text: item.text,
+        contentType,
+        difficulty: item.difficulty,
+        image: item.image,
+        child: childId,
+        createdBy: item.createdBy,
+        createdAt: item.createdAt
+    };
+}
 
 // Ensure uploads directory exists
 const uploadDir = path.join(__dirname, '../uploads');
@@ -54,14 +75,36 @@ router.post('/', protect, upload.single('image'), async (req, res) => {
             imagePath = `/uploads/${req.file.filename}`;
         }
 
-        const word = await Word.create({
-            text,
-            contentType: contentType || 'word',
+        const type = contentType || 'word';
+        if (!['word', 'letter'].includes(type)) {
+            return res.status(400).json({
+                success: false,
+                message: 'Invalid contentType'
+            });
+        }
+
+        const trimmed = text.trim();
+        const doc = await getOrCreateContentDoc(childId);
+        const targetArr = type === 'word' ? doc.contentWords : doc.contentLetters;
+
+        const exists = targetArr.some(i => i.text === trimmed);
+        if (exists) {
+            return res.status(400).json({
+                success: false,
+                message: `${type === 'word' ? 'Word' : 'Letter'} already exists for this child`
+            });
+        }
+
+        const created = targetArr.create({
+            text: trimmed,
             difficulty: difficulty || 'easy',
-            child: childId,
             image: imagePath,
             createdBy: req.user.id
         });
+        targetArr.push(created);
+        await doc.save();
+
+        const word = asLegacyWordItem(created, type, childId);
 
         res.status(201).json({
             success: true,
@@ -81,31 +124,34 @@ router.post('/', protect, upload.single('image'), async (req, res) => {
 // @access  Private
 router.delete('/:id', protect, async (req, res) => {
     try {
-        const word = await Word.findById(req.params.id);
+        const contentId = req.params.id;
+        const doc = await Exercise.findOne({
+            kind: 'content',
+            $or: [
+                { 'contentWords._id': contentId },
+                { 'contentLetters._id': contentId }
+            ]
+        });
 
-        if (!word) {
+        if (!doc) {
             return res.status(404).json({
                 success: false,
                 message: 'Word not found'
             });
         }
 
-        // Check ownership (optional: or if user is specialist assigned to child)
-        // For now, allow if createdBy matches or generic admin check
-        // Assuming specialist who created it can delete it
-        if (word.createdBy && word.createdBy.toString() !== req.user.id) {
-            // Check if user is the assigned specialist for the child?
-            // This requires looking up Child.
-            // For simplicity, strict check or just allow if specialist.
-            // Let's rely on simple auth for now.
-        }
+        const wordItem = doc.contentWords?.id(contentId);
+        const letterItem = doc.contentLetters?.id(contentId);
 
-        await word.deleteOne();
+        if (wordItem) wordItem.deleteOne();
+        if (letterItem) letterItem.deleteOne();
+
+        await doc.save();
 
         res.json({
             success: true,
             message: 'Word deleted',
-            childId: word.child // Return childId to help frontend redirect
+            childId: doc.child // Return childId to help frontend redirect
         });
     } catch (error) {
         console.error('Error deleting word:', error);
@@ -122,40 +168,23 @@ router.get('/child/:childId', protect, async (req, res) => {
         const { childId } = req.params;
         const { difficulty, contentType } = req.query;
 
-        let query = { child: childId };
-        if (difficulty) query.difficulty = difficulty;
-        if (contentType) query.contentType = contentType;
-
-        const words = await Word.find(query).sort('-createdAt');
-
-        // Split into words and letters for frontend convenience if needed?
-        // Frontend expects { words: [], letters: [] } in one call?
-        // specialist-portal/routes/words.js: const { words, letters } = response.data
-        // So yes, we should categorize them here or frontend does it?
-        // Let's return separated lists to match frontend expectation.
-
-        // Wait, if I filter by contentType in query, I only get one type.
-        // If frontend requests ALL, I separate.
-
-        // If frontend sends specific contentType, we return list.
-        // Frontend logic (line 97): params: { childId, difficulty, contentType }
-        // BUT response destructuring: const { words, letters } = response.data
-        // This suggests frontend expects BOTH arrays if no contentType specified OR structured object.
-
-        // Let's fetch ALL for the child if no specific type requested, then separate.
+        const doc = await Exercise.findOne({ child: childId, kind: 'content' });
+        const difficultyOk = (item) => !difficulty || item.difficulty === difficulty;
 
         let localWords = [];
         let localLetters = [];
 
-        if (contentType) {
-            const results = await Word.find(query).sort('-createdAt');
-            if (contentType === 'word') localWords = results;
-            else localLetters = results;
-        } else {
-            // Fetch all
-            const allItems = await Word.find({ child: childId }).sort('-createdAt');
-            localWords = allItems.filter(w => w.contentType === 'word');
-            localLetters = allItems.filter(w => w.contentType === 'letter');
+        if (!contentType || contentType === 'word') {
+            localWords = (doc?.contentWords || [])
+                .filter(difficultyOk)
+                .map(i => asLegacyWordItem(i, 'word', childId))
+                .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+        }
+        if (!contentType || contentType === 'letter') {
+            localLetters = (doc?.contentLetters || [])
+                .filter(difficultyOk)
+                .map(i => asLegacyWordItem(i, 'letter', childId))
+                .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
         }
 
         res.json({
@@ -175,7 +204,27 @@ router.get('/child/:childId', protect, async (req, res) => {
 // Get all words (for admin/specialist)
 router.get('/', protect, async (req, res) => {
     try {
-        const words = await Word.find().populate('child', 'name').sort('-createdAt');
+        const docs = await Exercise.find({ kind: 'content' })
+            .populate('child', 'name')
+            .sort('-updatedAt');
+
+        const words = [];
+        for (const doc of docs) {
+            const childRef = doc.child?._id ? doc.child._id : doc.child;
+
+            for (const item of (doc.contentWords || [])) {
+                const mapped = asLegacyWordItem(item, 'word', childRef);
+                mapped.child = doc.child;
+                words.push(mapped);
+            }
+            for (const item of (doc.contentLetters || [])) {
+                const mapped = asLegacyWordItem(item, 'letter', childRef);
+                mapped.child = doc.child;
+                words.push(mapped);
+            }
+        }
+
+        words.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
 
         res.json({
             success: true,

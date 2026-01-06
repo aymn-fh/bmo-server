@@ -105,8 +105,6 @@ router.post('/sync', protect, async (req, res) => {
 
     await progress.save();
 
-    await progress.save();
-
     // 🔔 Create Notification for Parent
     try {
       const child = await Child.findById(childId).select('name parent');

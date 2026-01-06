@@ -1,11 +1,32 @@
 const express = require('express');
 const router = express.Router();
-const Word = require('../models/Word');
+const Exercise = require('../models/Exercise');
 const Child = require('../models/Child');
 const User = require('../models/User');
 const Progress = require('../models/Progress');
 const { protect } = require('../middleware/auth');
 const LinkRequest = require('../models/LinkRequest');
+
+async function getOrCreateContentDoc(childId) {
+    return Exercise.findOneAndUpdate(
+        { child: childId, kind: 'content' },
+        { $setOnInsert: { child: childId, kind: 'content', active: true } },
+        { new: true, upsert: true, runValidators: true }
+    );
+}
+
+function asLegacyContentItem(item, contentType, childId) {
+    return {
+        _id: item._id,
+        text: item.text,
+        contentType,
+        difficulty: item.difficulty,
+        image: item.image,
+        child: childId,
+        createdBy: item.createdBy,
+        createdAt: item.createdAt
+    };
+}
 
 // @route   GET /api/specialist/dashboard
 // @desc    Get specialist dashboard stats
@@ -106,24 +127,24 @@ router.get('/words', protect, async (req, res) => {
                 });
             }
 
-            // Build query for content
-            let query = { child: childId };
-            if (contentType && ['word', 'letter'].includes(contentType)) {
-                query.contentType = contentType;
-            }
-            if (difficulty && ['easy', 'medium', 'hard'].includes(difficulty)) {
-                query.difficulty = difficulty;
-            }
+            const doc = await Exercise.findOne({ child: childId, kind: 'content' });
+            const difficultyOk = (item) => !difficulty || !['easy', 'medium', 'hard'].includes(difficulty) || item.difficulty === difficulty;
 
             // Get content based on type
             let words = [];
             let letters = [];
 
             if (!contentType || contentType === 'word') {
-                words = await Word.find({ ...query, contentType: 'word' }).sort('-createdAt');
+                words = (doc?.contentWords || [])
+                    .filter(difficultyOk)
+                    .map(i => asLegacyContentItem(i, 'word', childId))
+                    .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
             }
             if (!contentType || contentType === 'letter') {
-                letters = await Word.find({ ...query, contentType: 'letter' }).sort('-createdAt');
+                letters = (doc?.contentLetters || [])
+                    .filter(difficultyOk)
+                    .map(i => asLegacyContentItem(i, 'letter', childId))
+                    .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
             }
 
             res.json({
@@ -215,28 +236,27 @@ router.post('/content/add', protect, async (req, res) => {
             });
         }
 
-        // Check for duplicate content for this child
-        const existingContent = await Word.findOne({
-            text: text.trim(),
-            contentType,
-            child: childId
-        });
+        const trimmed = text.trim();
+        const doc = await getOrCreateContentDoc(childId);
+        const targetArr = contentType === 'word' ? doc.contentWords : doc.contentLetters;
 
-        if (existingContent) {
+        const exists = targetArr.some(i => i.text === trimmed);
+        if (exists) {
             return res.status(400).json({
                 success: false,
                 message: `${contentType === 'word' ? 'Word' : 'Letter'} already exists for this child`
             });
         }
 
-        // Create the content
-        const content = await Word.create({
-            text: text.trim(),
-            contentType,
+        const created = targetArr.create({
+            text: trimmed,
             difficulty: difficulty || 'easy',
-            child: childId,
             createdBy: req.user.id
         });
+        targetArr.push(created);
+        await doc.save();
+
+        const content = asLegacyContentItem(created, contentType, childId);
 
         res.status(201).json({
             success: true,
@@ -259,9 +279,15 @@ router.post('/content/delete/:contentId', protect, async (req, res) => {
     try {
         const { contentId } = req.params;
 
-        const content = await Word.findById(contentId);
+        const doc = await Exercise.findOne({
+            kind: 'content',
+            $or: [
+                { 'contentWords._id': contentId },
+                { 'contentLetters._id': contentId }
+            ]
+        });
 
-        if (!content) {
+        if (!doc) {
             return res.status(404).json({
                 success: false,
                 message: 'Content not found'
@@ -269,7 +295,7 @@ router.post('/content/delete/:contentId', protect, async (req, res) => {
         }
 
         // Verify the content belongs to a child assigned to this specialist
-        const child = await Child.findById(content.child);
+        const child = await Child.findById(doc.child);
         if (!child || child.assignedSpecialist.toString() !== req.user.id) {
             return res.status(403).json({
                 success: false,
@@ -277,7 +303,13 @@ router.post('/content/delete/:contentId', protect, async (req, res) => {
             });
         }
 
-        await Word.findByIdAndDelete(contentId);
+        const wordItem = doc.contentWords?.id(contentId);
+        const letterItem = doc.contentLetters?.id(contentId);
+
+        if (wordItem) wordItem.deleteOne();
+        if (letterItem) letterItem.deleteOne();
+
+        await doc.save();
 
         res.json({
             success: true,

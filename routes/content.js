@@ -1,7 +1,28 @@
 const express = require('express');
 const router = express.Router();
-const Word = require('../models/Word');
+const Exercise = require('../models/Exercise');
 const { protect } = require('../middleware/auth');
+
+async function getOrCreateContentDoc(childId) {
+    return Exercise.findOneAndUpdate(
+        { child: childId, kind: 'content' },
+        { $setOnInsert: { child: childId, kind: 'content', active: true } },
+        { new: true, upsert: true, runValidators: true }
+    );
+}
+
+function asLegacyContentItem(item, contentType, childId) {
+    return {
+        _id: item._id,
+        text: item.text,
+        contentType,
+        difficulty: item.difficulty,
+        image: item.image,
+        child: childId,
+        createdBy: item.createdBy,
+        createdAt: item.createdAt
+    };
+}
 
 // @route   GET /api/content/child/:childId
 // @desc    Get all content (words and letters) for a specific child
@@ -11,19 +32,19 @@ router.get('/child/:childId', protect, async (req, res) => {
         const { childId } = req.params;
         const { contentType, difficulty } = req.query;
 
-        let query = { child: childId };
-        
-        // Filter by content type if specified
-        if (contentType && ['word', 'letter'].includes(contentType)) {
-            query.contentType = contentType;
-        }
-        
-        // Filter by difficulty if specified
-        if (difficulty && ['easy', 'medium', 'hard'].includes(difficulty)) {
-            query.difficulty = difficulty;
-        }
+        const doc = await Exercise.findOne({ child: childId, kind: 'content' });
 
-        const content = await Word.find(query).sort('-createdAt');
+        const difficultyFilter = (item) => !difficulty || !['easy', 'medium', 'hard'].includes(difficulty) || item.difficulty === difficulty;
+
+        const words = (doc?.contentWords || []).filter(difficultyFilter).map(i => asLegacyContentItem(i, 'word', childId));
+        const letters = (doc?.contentLetters || []).filter(difficultyFilter).map(i => asLegacyContentItem(i, 'letter', childId));
+
+        let content = [];
+        if (contentType === 'word') content = words;
+        else if (contentType === 'letter') content = letters;
+        else content = [...words, ...letters];
+
+        content.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
 
         res.json({
             success: true,
@@ -47,13 +68,13 @@ router.get('/words/child/:childId', protect, async (req, res) => {
         const { childId } = req.params;
         const { difficulty } = req.query;
 
-        let query = { child: childId, contentType: 'word' };
-        
-        if (difficulty && ['easy', 'medium', 'hard'].includes(difficulty)) {
-            query.difficulty = difficulty;
-        }
+        const doc = await Exercise.findOne({ child: childId, kind: 'content' });
+        const difficultyFilter = (item) => !difficulty || !['easy', 'medium', 'hard'].includes(difficulty) || item.difficulty === difficulty;
 
-        const words = await Word.find(query).sort('-createdAt');
+        const words = (doc?.contentWords || [])
+            .filter(difficultyFilter)
+            .map(i => asLegacyContentItem(i, 'word', childId))
+            .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
 
         res.json({
             success: true,
@@ -77,13 +98,13 @@ router.get('/letters/child/:childId', protect, async (req, res) => {
         const { childId } = req.params;
         const { difficulty } = req.query;
 
-        let query = { child: childId, contentType: 'letter' };
-        
-        if (difficulty && ['easy', 'medium', 'hard'].includes(difficulty)) {
-            query.difficulty = difficulty;
-        }
+        const doc = await Exercise.findOne({ child: childId, kind: 'content' });
+        const difficultyFilter = (item) => !difficulty || !['easy', 'medium', 'hard'].includes(difficulty) || item.difficulty === difficulty;
 
-        const letters = await Word.find(query).sort('-createdAt');
+        const letters = (doc?.contentLetters || [])
+            .filter(difficultyFilter)
+            .map(i => asLegacyContentItem(i, 'letter', childId))
+            .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
 
         res.json({
             success: true,
@@ -145,14 +166,27 @@ router.post('/add', protect, async (req, res) => {
             });
         }
 
-        // Create the content
-        const content = await Word.create({
-            text: text.trim(),
-            contentType,
+        const trimmed = text.trim();
+        const doc = await getOrCreateContentDoc(childId);
+        const targetArr = contentType === 'word' ? doc.contentWords : doc.contentLetters;
+
+        const exists = targetArr.some(i => i.text === trimmed);
+        if (exists) {
+            return res.status(400).json({
+                success: false,
+                message: `${contentType === 'word' ? 'Word' : 'Letter'} already exists for this child`
+            });
+        }
+
+        const created = targetArr.create({
+            text: trimmed,
             difficulty: difficulty || 'easy',
-            child: childId,
             createdBy: req.user.id
         });
+        targetArr.push(created);
+        await doc.save();
+
+        const content = asLegacyContentItem(created, contentType, childId);
 
         res.status(201).json({
             success: true,
@@ -175,16 +209,28 @@ router.delete('/delete/:contentId', protect, async (req, res) => {
     try {
         const { contentId } = req.params;
 
-        const content = await Word.findById(contentId);
+        const doc = await Exercise.findOne({
+            kind: 'content',
+            $or: [
+                { 'contentWords._id': contentId },
+                { 'contentLetters._id': contentId }
+            ]
+        });
 
-        if (!content) {
+        if (!doc) {
             return res.status(404).json({
                 success: false,
                 message: 'Content not found'
             });
         }
 
-        await Word.findByIdAndDelete(contentId);
+        const wordItem = doc.contentWords?.id(contentId);
+        const letterItem = doc.contentLetters?.id(contentId);
+
+        if (wordItem) wordItem.deleteOne();
+        if (letterItem) letterItem.deleteOne();
+
+        await doc.save();
 
         res.json({
             success: true,
@@ -206,23 +252,37 @@ router.get('/all', protect, async (req, res) => {
     try {
         const { contentType, difficulty, childId } = req.query;
 
-        let query = {};
-        
-        if (contentType && ['word', 'letter'].includes(contentType)) {
-            query.contentType = contentType;
-        }
-        
-        if (difficulty && ['easy', 'medium', 'hard'].includes(difficulty)) {
-            query.difficulty = difficulty;
-        }
+        const docQuery = { kind: 'content' };
+        if (childId) docQuery.child = childId;
 
-        if (childId) {
-            query.child = childId;
-        }
-
-        const content = await Word.find(query)
+        const docs = await Exercise.find(docQuery)
             .populate('child', 'name age')
-            .sort('-createdAt');
+            .sort('-updatedAt');
+
+        const difficultyOk = (item) => !difficulty || !['easy', 'medium', 'hard'].includes(difficulty) || item.difficulty === difficulty;
+
+        let content = [];
+        for (const doc of docs) {
+            const childRef = doc.child?._id ? doc.child._id : doc.child;
+
+            if (!contentType || contentType === 'word') {
+                for (const item of (doc.contentWords || []).filter(difficultyOk)) {
+                    const mapped = asLegacyContentItem(item, 'word', childRef);
+                    mapped.child = doc.child;
+                    content.push(mapped);
+                }
+            }
+
+            if (!contentType || contentType === 'letter') {
+                for (const item of (doc.contentLetters || []).filter(difficultyOk)) {
+                    const mapped = asLegacyContentItem(item, 'letter', childRef);
+                    mapped.child = doc.child;
+                    content.push(mapped);
+                }
+            }
+        }
+
+        content.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
 
         res.json({
             success: true,

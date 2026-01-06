@@ -60,13 +60,13 @@ router.get('/center', protect, authorize('admin'), checkCenterAccess, async (req
 // @access  Private (Admin)
 router.get('/specialists', protect, authorize('admin'), checkCenterAccess, async (req, res) => {
     try {
+        // Optimized: Use lean() and avoid populating full objects just for counts
         const specialists = await User.find({
             center: req.user.center,
             role: 'specialist'
         })
-            .select('-password')
-            .populate('linkedParents', 'name email')
-            .populate('assignedChildren', 'name age');
+            .select('name email phone specialization linkedParents assignedChildren profilePhoto staffId')
+            .lean();
 
         res.json({
             success: true,
@@ -334,6 +334,16 @@ router.get('/stats', protect, authorize('admin'), checkCenterAccess, async (req,
             assignedSpecialist: { $in: centerSpecialistIds }
         });
 
+        // Get recent specialists (Top 5)
+        const recentSpecialists = await User.find({
+            center: req.user.center,
+            role: 'specialist'
+        })
+            .sort({ createdAt: -1 })
+            .limit(5)
+            .select('name email specialization profilePhoto staffId')
+            .lean();
+
         res.json({
             success: true,
             stats: {
@@ -341,7 +351,8 @@ router.get('/stats', protect, authorize('admin'), checkCenterAccess, async (req,
                 myParents: parentsCount,
                 myChildren: childrenCount,
                 centerChildren: centerChildrenCount
-            }
+            },
+            recentSpecialists
         });
     } catch (error) {
         res.status(500).json({

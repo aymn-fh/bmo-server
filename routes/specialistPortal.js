@@ -35,18 +35,38 @@ router.get('/dashboard', protect, async (req, res) => {
         // Get recent 5 children
         let recentChildren = [];
         try {
+            // Get children as plain objects
             recentChildren = await Child.find({ assignedSpecialist: specialistId })
                 .sort('-createdAt')
                 .limit(5)
-                .populate({
-                    path: 'parent',
-                    select: 'name email phone profilePhoto staffId',
-                    model: 'User'
+                .lean();
+
+            // Manually populate parents to avoid Schema reference issues
+            const parentIds = recentChildren
+                .map(c => c.parent)
+                .filter(id => id); // Filter out null/undefined
+
+            if (parentIds.length > 0) {
+                const parents = await User.find({ _id: { $in: parentIds } })
+                    .select('name email phone profilePhoto staffId')
+                    .lean();
+
+                // Create a map for faster lookup
+                const parentMap = {};
+                parents.forEach(p => {
+                    parentMap[p._id.toString()] = p;
                 });
+
+                // Attach parent objects to children
+                recentChildren.forEach(child => {
+                    if (child.parent && parentMap[child.parent.toString()]) {
+                        child.parent = parentMap[child.parent.toString()];
+                    }
+                });
+            }
         } catch (err) {
             console.error('Error fetching recent children:', err);
-            // Fallback to empty list or without populate if critical
-            recentChildren = [];
+            // Don't fail the whole dashboard
         }
 
         res.json({

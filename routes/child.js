@@ -175,7 +175,42 @@ router.put('/:id', protect, async (req, res) => {
       });
     }
 
-    child = await Child.findByIdAndUpdate(req.params.id, req.body, {
+    // Enforce avatar change cooldown (3 days) to prevent excessive updates.
+    const updateData = { ...req.body };
+    // Never allow client to set the audit timestamp directly.
+    delete updateData.avatarSelectedAt;
+
+    if (Object.prototype.hasOwnProperty.call(updateData, 'avatarId')) {
+      const nextAvatarId = (updateData.avatarId ?? '').toString().trim();
+      const currentAvatarId = (child.avatarId ?? '').toString().trim();
+
+      // Normalize empty string -> null
+      if (!nextAvatarId) {
+        delete updateData.avatarId;
+      } else if (nextAvatarId !== currentAvatarId) {
+        const cooldownMs = 3 * 24 * 60 * 60 * 1000;
+        const lastSelectedAt = child.avatarSelectedAt ? new Date(child.avatarSelectedAt).getTime() : null;
+        const now = Date.now();
+
+        if (lastSelectedAt && now - lastSelectedAt < cooldownMs) {
+          const remainingMs = cooldownMs - (now - lastSelectedAt);
+          const remainingHours = Math.ceil(remainingMs / (60 * 60 * 1000));
+          return res.status(429).json({
+            success: false,
+            message: `You can change the avatar again in about ${remainingHours} hour(s).`
+          });
+        }
+
+        // First selection (or after cooldown) is allowed.
+        updateData.avatarId = nextAvatarId;
+        updateData.avatarSelectedAt = new Date();
+      } else {
+        // No change
+        delete updateData.avatarId;
+      }
+    }
+
+    child = await Child.findByIdAndUpdate(req.params.id, updateData, {
       new: true,
       runValidators: true
     });

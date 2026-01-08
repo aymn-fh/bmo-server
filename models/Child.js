@@ -60,6 +60,20 @@ const childSchema = new mongoose.Schema({
     unique: true,
     trim: true
   },
+
+  // Default avatar selection (shared across apps by ID)
+  // Example IDs: avatar_01, avatar_02, ...
+  avatarId: {
+    type: String,
+    trim: true,
+    default: null
+  },
+  // When the avatar was explicitly selected/changed by the user.
+  // Used to enforce a cooldown window for avatar changes.
+  avatarSelectedAt: {
+    type: Date,
+    default: null
+  },
   active: {
     type: Boolean,
     default: true
@@ -73,6 +87,11 @@ childSchema.pre('save', async function (next) {
   if (this.isNew && !this.childId) {
     const count = await this.constructor.countDocuments();
     this.childId = `CH-${String(count + 1).padStart(4, '0')}`;
+  }
+
+  // Set a sensible default avatarId if not provided.
+  if (this.isNew && !this.avatarId) {
+    this.avatarId = this.gender === 'female' ? 'avatar_02' : 'avatar_01';
   }
   next();
 });

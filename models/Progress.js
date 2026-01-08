@@ -4,6 +4,16 @@ const attemptSchema = new mongoose.Schema({
   letter: String,
   word: String,
   vowel: String,
+  // Speech analysis details (sent from Child-Game)
+  recognizedText: String,
+  referenceText: String,
+  // Detailed scores (0-100). `score` is kept for backward compatibility.
+  pronunciationScore: Number,
+  accuracyScore: Number,
+  fluencyScore: Number,
+  completenessScore: Number,
+  // e.g. 'local' | 'azure'
+  analysisSource: String,
   success: Boolean,
   score: Number,
   timestamp: { type: Date, default: Date.now }

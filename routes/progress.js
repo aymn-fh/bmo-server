@@ -270,4 +270,90 @@ router.get('/sessions/:childId', protect, async (req, res) => {
   }
 });
 
+// @route   GET /api/progress/attempts/:childId
+// @desc    Get recent attempts (flattened across sessions)
+// @access  Private
+router.get('/attempts/:childId', protect, async (req, res) => {
+  try {
+    const child = await Child.findById(req.params.childId);
+
+    if (!child) {
+      return res.status(404).json({
+        success: false,
+        message: 'Child not found'
+      });
+    }
+
+    // Check authorization
+    if (req.user.role === 'parent' && child.parent.toString() !== req.user.id) {
+      return res.status(403).json({
+        success: false,
+        message: 'Not authorized'
+      });
+    }
+
+    if (req.user.role === 'specialist' && (!child.assignedSpecialist || child.assignedSpecialist.toString() !== req.user.id)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Not authorized'
+      });
+    }
+
+    const rawLimit = parseInt(req.query.limit, 10);
+    const limit = Number.isFinite(rawLimit) ? Math.min(Math.max(rawLimit, 1), 200) : 50;
+
+    const progress = await Progress.findOne({ child: req.params.childId }).lean();
+
+    if (!progress || !progress.sessions || progress.sessions.length === 0) {
+      return res.json({
+        success: true,
+        attempts: []
+      });
+    }
+
+    const attempts = [];
+    for (const session of progress.sessions) {
+      const sessionDate = session.sessionDate;
+      const sessionAttempts = Array.isArray(session.attempts) ? session.attempts : [];
+      for (const a of sessionAttempts) {
+        const target = a.word || a.letter || a.vowel || '';
+        attempts.push({
+          sessionDate,
+          timestamp: a.timestamp,
+          target,
+          letter: a.letter,
+          word: a.word,
+          vowel: a.vowel,
+          success: !!a.success,
+          // prefer detailed field if provided; fall back to score
+          score: typeof a.score === 'number' ? a.score : undefined,
+          pronunciationScore: typeof a.pronunciationScore === 'number' ? a.pronunciationScore : undefined,
+          accuracyScore: typeof a.accuracyScore === 'number' ? a.accuracyScore : undefined,
+          fluencyScore: typeof a.fluencyScore === 'number' ? a.fluencyScore : undefined,
+          completenessScore: typeof a.completenessScore === 'number' ? a.completenessScore : undefined,
+          recognizedText: a.recognizedText,
+          referenceText: a.referenceText,
+          analysisSource: a.analysisSource,
+        });
+      }
+    }
+
+    attempts.sort((a, b) => {
+      const ta = new Date(a.timestamp || 0).getTime();
+      const tb = new Date(b.timestamp || 0).getTime();
+      return tb - ta;
+    });
+
+    res.json({
+      success: true,
+      attempts: attempts.slice(0, limit)
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+});
+
 module.exports = router;

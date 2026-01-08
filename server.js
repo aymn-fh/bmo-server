@@ -92,7 +92,23 @@ app.get('/', (req, res) => {
 
 // Health check
 app.get('/health', (req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+  const readyState = mongoose.connection.readyState;
+  const stateLabel = readyState === 1
+    ? 'connected'
+    : readyState === 2
+      ? 'connecting'
+      : readyState === 3
+        ? 'disconnecting'
+        : 'disconnected';
+
+  res.json({
+    status: 'ok',
+    timestamp: new Date().toISOString(),
+    db: {
+      readyState,
+      state: stateLabel,
+    },
+  });
 });
 
 // Error handling middleware
@@ -105,12 +121,64 @@ app.use((err, req, res, next) => {
   });
 });
 
-// Database connection and server startup
-mongoose.connect(process.env.MONGODB_URI || process.env.MONGO_URI, {
-  serverSelectionTimeoutMS: 30000,
-  socketTimeoutMS: 45000,
-})
-  .then(async () => {
+// Start HTTP server immediately (hosting platforms require binding $PORT quickly)
+// Default to 5000 to match our Dockerfile EXPOSE and local expectations.
+const PORT = Number(process.env.PORT || 5000);
+
+const server = http.createServer(app);
+const io = new Server(server, {
+  cors: { origin: "*", methods: ["GET", "POST"] }
+});
+
+app.set('io', io);
+
+io.on('connection', (socket) => {
+  const clientIp = socket.handshake.headers['x-forwarded-for'] || socket.handshake.address;
+  const userId = socket.handshake.auth?.userId;
+
+  console.log(`🔌 [New Socket Connection] IP: ${clientIp}, Socket ID: ${socket.id}, UserID: ${userId || 'n/a'}`);
+
+  if (userId) {
+    socket.join(userId.toString());
+  }
+
+  // Typing indicator relay: sender -> receiver
+  socket.on('typing', (data) => {
+    if (!userId) return;
+    const receiverId = data?.receiverId;
+    const isTyping = !!data?.isTyping;
+    if (!receiverId) return;
+    io.to(receiverId.toString()).emit('user_typing', { userId: userId.toString(), isTyping });
+  });
+
+  socket.on('disconnect', () => {
+    console.log(`❌ [Socket Disconnected] ID: ${socket.id}`);
+  });
+});
+
+server.listen(PORT, '0.0.0.0', () => {
+  console.log(`🚀 Server running on port ${PORT}`);
+  console.log(`📡 Accepting connections from all network interfaces`);
+});
+
+// Database connection (async, with retry) so the service stays responsive even if DB is down
+const mongoUri = process.env.MONGODB_URI || process.env.MONGO_URI;
+let _mongoConnectInFlight = false;
+
+async function connectMongoWithRetry() {
+  if (_mongoConnectInFlight) return;
+  if (!mongoUri) {
+    console.error('❌ Missing MONGODB_URI/MONGO_URI env var. Backend will run but DB features will fail until it is set.');
+    return;
+  }
+
+  _mongoConnectInFlight = true;
+  try {
+    await mongoose.connect(mongoUri, {
+      serverSelectionTimeoutMS: 30000,
+      socketTimeoutMS: 45000,
+    });
+
     console.log('✅ متصل بقاعدة البيانات');
 
     if (mongoose.connection.readyState !== 1) {
@@ -139,49 +207,19 @@ mongoose.connect(process.env.MONGODB_URI || process.env.MONGO_URI, {
     } catch (e) {
       console.warn('⚠️ Email transporter verification failed:', e.message);
     }
+  } catch (err) {
+    console.error('❌ MongoDB connection error:', err?.message || err);
+    console.error('⏳ Will retry Mongo connection in 5s...');
+    setTimeout(() => {
+      _mongoConnectInFlight = false;
+      connectMongoWithRetry();
+    }, 5000);
+    return;
+  }
 
-    const PORT = process.env.PORT || 8080;
+  _mongoConnectInFlight = false;
+}
 
-    const server = http.createServer(app);
-    const io = new Server(server, {
-      cors: { origin: "*", methods: ["GET", "POST"] }
-    });
-
-    app.set('io', io);
-
-    io.on('connection', (socket) => {
-      const clientIp = socket.handshake.headers['x-forwarded-for'] || socket.handshake.address;
-      const userId = socket.handshake.auth?.userId;
-
-      console.log(`🔌 [New Socket Connection] IP: ${clientIp}, Socket ID: ${socket.id}, UserID: ${userId || 'n/a'}`);
-
-      if (userId) {
-        socket.join(userId.toString());
-      }
-
-      // Typing indicator relay: sender -> receiver
-      socket.on('typing', (data) => {
-        if (!userId) return;
-        const receiverId = data?.receiverId;
-        const isTyping = !!data?.isTyping;
-        if (!receiverId) return;
-        io.to(receiverId.toString()).emit('user_typing', { userId: userId.toString(), isTyping });
-      });
-
-      socket.on('disconnect', () => {
-        console.log(`❌ [Socket Disconnected] ID: ${socket.id}`);
-      });
-    });
-
-    server.listen(PORT, '0.0.0.0', () => {
-      console.log(`🚀 Server running on port ${PORT}`);
-      console.log(`📡 Accepting connections from all network interfaces`);
-    });
-
-  })
-  .catch(err => {
-    console.error('❌ MongoDB connection error:', err);
-    process.exit(1);
-  });
+connectMongoWithRetry();
 
 module.exports = app;

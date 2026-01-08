@@ -14,5 +14,8 @@ COPY . .
 # Expose port
 EXPOSE 5000
 
+# Ensure the app binds the same port by default
+ENV PORT=5000
+
 # Start server
 CMD ["node", "server.js"]

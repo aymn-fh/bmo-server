@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const Counter = require('./Counter');
 
 const childSchema = new mongoose.Schema({
   name: {
@@ -82,11 +83,47 @@ const childSchema = new mongoose.Schema({
   timestamps: true
 });
 
+async function getNextChildId(ChildModel) {
+  const counterName = 'childId';
+
+  // Initialize the counter from the current max childId (important for existing DBs).
+  const existingCounter = await Counter.findById(counterName).lean();
+  if (!existingCounter) {
+    const last = await ChildModel.findOne({ childId: /^CH-\d{4}$/ })
+      .sort({ childId: -1 })
+      .select('childId')
+      .lean();
+
+    const start = last?.childId ? parseInt(last.childId.slice(3), 10) : 0;
+    try {
+      await Counter.create({ _id: counterName, seq: start });
+    } catch (err) {
+      // If another request initialized it concurrently, ignore the duplicate.
+      if (err?.code !== 11000) throw err;
+    }
+  }
+
+  const updated = await Counter.findByIdAndUpdate(
+    counterName,
+    { $inc: { seq: 1 } },
+    { new: true }
+  );
+
+  if (!updated) {
+    throw new Error('Failed to generate childId');
+  }
+
+  return `CH-${String(updated.seq).padStart(4, '0')}`;
+}
+
 // Pre-save hook to generate childId
 childSchema.pre('save', async function (next) {
   if (this.isNew && !this.childId) {
-    const count = await this.constructor.countDocuments();
-    this.childId = `CH-${String(count + 1).padStart(4, '0')}`;
+    try {
+      this.childId = await getNextChildId(this.constructor);
+    } catch (err) {
+      return next(err);
+    }
   }
 
   // Set a sensible default avatarId if not provided.

@@ -44,6 +44,13 @@ router.post('/', protect, async (req, res) => {
     });
   } catch (error) {
     console.log('❌ [CHILD ROUTE] Error creating child:', error.message);
+    if (error?.code === 11000 && (error?.keyPattern?.childId || error?.keyValue?.childId)) {
+      return res.status(409).json({
+        success: false,
+        message: 'Duplicate child ID detected. Please try again.'
+      });
+    }
+
     res.status(500).json({
       success: false,
       message: error.message

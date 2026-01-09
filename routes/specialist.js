@@ -20,6 +20,13 @@ router.get('/pending-requests', protect, authorize('specialist'), async (req, re
       children
     });
   } catch (error) {
+    if (error?.code === 11000 && (error?.keyPattern?.childId || error?.keyValue?.childId)) {
+      return res.status(409).json({
+        success: false,
+        message: 'Duplicate child ID detected. Please try again.'
+      });
+    }
+
     res.status(500).json({
       success: false,
       message: error.message

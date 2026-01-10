@@ -3,7 +3,18 @@ const mongoose = require('mongoose');
 const cors = require('cors');
 const helmet = require('helmet');
 const morgan = require('morgan');
-require('dotenv').config();
+// Load .env only for local development. On Railway (and most hosts), environment
+// variables are injected by the platform and a committed .env can cause outages
+// (e.g. forcing NODE_ENV=development, seeding, wrong PORT).
+const isRailway = !!(
+  process.env.RAILWAY_ENVIRONMENT ||
+  process.env.RAILWAY_PROJECT_ID ||
+  process.env.RAILWAY_SERVICE_ID
+);
+
+if (!isRailway && process.env.NODE_ENV !== 'production') {
+  require('dotenv').config();
+}
 
 const authRoutes = require('./routes/auth');
 const childRoutes = require('./routes/child');
@@ -203,8 +214,9 @@ async function connectMongoWithRetry() {
 
     console.log('✅ قاعدة البيانات جاهزة تماماً');
 
-    if (process.env.NODE_ENV === 'development') {
-      console.log('--- بدء ملء قاعدة البيانات في وضع التطوير ---');
+    const shouldSeed = String(process.env.FORCE_SEED || '').toLowerCase() === 'true';
+    if (shouldSeed) {
+      console.log('--- بدء ملء قاعدة البيانات (FORCE_SEED=true) ---');
       try {
         await seedDatabase();
         console.log('--- اكتمال ملء قاعدة البيانات ---');

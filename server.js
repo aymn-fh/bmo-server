@@ -185,6 +185,35 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log(`📡 Accepting connections from all network interfaces`);
 });
 
+// Graceful shutdown (Railway/hosts send SIGTERM on deploy/restart)
+function shutdown(signal) {
+  console.log(`🛑 Received ${signal}. Shutting down gracefully...`);
+
+  // Stop accepting new connections
+  server.close(async () => {
+    try {
+      await mongoose.connection.close(false);
+    } catch (e) {
+      // ignore
+    }
+    process.exit(0);
+  });
+
+  // Force exit if something hangs
+  setTimeout(() => process.exit(0), 10_000).unref();
+}
+
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));
+
+process.on('unhandledRejection', (reason) => {
+  console.error('❌ Unhandled Promise Rejection:', reason);
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('❌ Uncaught Exception:', err);
+});
+
 // Database connection (async, with retry) so the service stays responsive even if DB is down
 const mongoUri = process.env.MONGODB_URI || process.env.MONGO_URI;
 let _mongoConnectInFlight = false;

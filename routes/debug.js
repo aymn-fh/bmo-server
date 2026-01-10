@@ -3,6 +3,22 @@ const express = require('express');
 const router = express.Router();
 const User = require('../models/User');
 
+// Debug route - minimal config status (no secrets)
+router.get('/config', (req, res) => {
+    res.json({
+        ok: true,
+        env: process.env.NODE_ENV || 'unknown',
+        jwt: {
+            configured: !!process.env.JWT_SECRET,
+            expireConfigured: !!process.env.JWT_EXPIRE,
+        },
+        db: {
+            mongoConfigured: !!(process.env.MONGODB_URI || process.env.MONGO_URI),
+        },
+        serverTime: new Date().toISOString(),
+    });
+});
+
 // Debug route - check specialist's linked parents
 router.get('/debug/specialist/:email', async (req, res) => {
     try {

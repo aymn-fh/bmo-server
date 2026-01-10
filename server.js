@@ -32,6 +32,14 @@ if (!fs.existsSync(uploadDir)) {
   console.log('📂 Uploads directory created at:', uploadDir);
 }
 
+// Ensure public static directory exists (versioned assets like default avatars)
+const publicDir = path.join(__dirname, 'public');
+const avatarsDir = path.join(publicDir, 'avatars');
+if (!fs.existsSync(avatarsDir)) {
+  fs.mkdirSync(avatarsDir, { recursive: true });
+  console.log('📂 Public avatars directory created at:', avatarsDir);
+}
+
 // Middleware
 app.use(helmet({
   crossOriginResourcePolicy: { policy: "cross-origin" } // Allow images to be loaded by other domains/apps
@@ -55,6 +63,7 @@ app.use(morgan('combined'));
 // });
 
 app.use('/uploads', express.static(uploadDir));
+app.use('/static', express.static(publicDir));
 
 // Log connected devices
 app.use((req, res, next) => {
@@ -92,21 +101,25 @@ app.get('/', (req, res) => {
 
 // Health check
 app.get('/health', (req, res) => {
-  const readyState = mongoose.connection.readyState;
-  const stateLabel = readyState === 1
-    ? 'connected'
-    : readyState === 2
-      ? 'connecting'
-      : readyState === 3
-        ? 'disconnecting'
-        : 'disconnected';
-
   res.json({
     status: 'ok',
     timestamp: new Date().toISOString(),
+    uptimeSeconds: Math.round(process.uptime()),
+    env: process.env.NODE_ENV || 'unknown',
+    jwt: {
+      configured: !!process.env.JWT_SECRET,
+      expireConfigured: !!process.env.JWT_EXPIRE,
+    },
     db: {
-      readyState,
-      state: stateLabel,
+      readyState: mongoose.connection.readyState,
+      state:
+        mongoose.connection.readyState === 1
+          ? 'connected'
+          : mongoose.connection.readyState === 2
+            ? 'connecting'
+            : mongoose.connection.readyState === 0
+              ? 'disconnected'
+              : 'unknown',
     },
   });
 });

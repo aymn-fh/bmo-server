@@ -1,0 +1,36 @@
+# Dependencies
+node_modules/
+node_modules copy/
+
+# Tooling caches
+.cache/
+
+# mongodb-memory-server downloads/cache
+mongodb-binaries/
+
+# Environment variables
+.env
+.env.local
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# Build/package artifacts
+*.tgz
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Uploads (optional - remove this line if you want to include uploads in git)
+uploads/*
+!uploads/.gitkeep
+
+# GitHub AI rules
+.github/instructions/codacy.instructions.md
